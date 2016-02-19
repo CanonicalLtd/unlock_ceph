@@ -5,3 +5,4 @@ authors = ["Chris MacNaughton <chmacnaughton@gmail.com>"]
 
 [dependencies]
 vault = "0.3"
+clap = "*"
