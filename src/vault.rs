@@ -16,14 +16,14 @@ pub fn initialize_vault<'a>(host: &'a str, token: &'a str) -> Client<'a> {
     Client::new(host, token).unwrap()
 }
 
-pub fn put_file_in_vault(vault: &Client, file: &PathBuf) -> Result<String, io::Error>{
+pub fn put_file_in_vault(vault: &Client, file: &PathBuf, hex: &String) -> Result<String, io::Error>{
     let mut f = try!(File::open(file));
     let mut s = String::new();
     try!(f.read_to_string(&mut s));
 
     let path = path_to_str!(file);
 
-    let _ = vault.set_secret(path, &s[..]);
+    let _ = vault.set_secret(&hex[..], &s[..]);
     Ok("".to_string())
 }
 

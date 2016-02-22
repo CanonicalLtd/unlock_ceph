@@ -1,4 +1,5 @@
 #[macro_use] extern crate clap;
+extern crate crypto;
 extern crate hashicorp_vault;
 #[macro_use] extern crate log;
 #[cfg(test)] extern crate rand;
@@ -12,6 +13,8 @@ use std::os::unix::fs::symlink;
 use std::path::PathBuf;
 
 use clap::{Arg, App};
+use crypto::digest::Digest;
+use crypto::sha1::Sha1;
 use hashicorp_vault::Client;
 use walkdir::WalkDir;
 
@@ -24,6 +27,7 @@ mod tests {
     use std::env::{temp_dir as tmp_dir};
     use std::fs::{File, DirBuilder};
     use std::fs;
+    use std::io::prelude::*;
     use std::os::unix::fs::symlink;
     use std::path::PathBuf;
 
@@ -70,8 +74,10 @@ mod tests {
         // symlink target
         dst3.push("test_3.txt");
         paths.push(dst3.to_string_lossy().replace("/", "_|_"));
-        let _ = File::create(dst1.clone()).unwrap();
-        let _ = File::create(dst2.clone()).unwrap();
+        let mut f = File::create(dst1.clone()).unwrap();
+        f.write_all(b"test1").unwrap();
+        let mut f = File::create(dst2.clone()).unwrap();
+        f.write_all(b"test2").unwrap();
 
         println!("Creating first subfolder");
         let mut subfolder1 = source.clone();
@@ -81,36 +87,51 @@ mod tests {
                 .create(&subfolder1).unwrap();
         subfolder1.push("test_4.txt");
         paths.push(subfolder1.to_string_lossy().replace("/", "_|_"));
-        let _ = File::create(subfolder1.clone()).unwrap();
+        let mut f = File::create(subfolder1.clone()).unwrap();
+        f.write_all(b"test4").unwrap();
         println!("Created subfolder's file");
 
         let mut linked_src = source.clone();
-        linked_src.push("test_5.txt");
-        let _ = File::create(linked_src.clone()).unwrap();
+        linked_src.push("test_3.txt");
+        let mut f = File::create(linked_src.clone()).unwrap();
+        f.write_all(b"test3").unwrap();
 
         let mut linked_dst = dest.clone();
-        linked_dst.push("test_5.txt");
+        linked_dst.push("test_3.txt");
 
         let _ = super::make_file_link(&linked_src, &dest, &vault_client);
         let path = &linked_src.to_string_lossy().replace("/", "_|_");
 
-        fs::remove_file(linked_src);
+        fs::remove_file(&linked_src);
         // let _ = symlink(linked_dst, dst3);
 
         println!("Created symlink");
-        for d in WalkDir::new(&parent).into_iter().filter_map(|e| e.ok()) {
-            println!(
-                "Have file: {:?}",
-                d.path());
+
+        let new_links = vec![dst1, dst2, subfolder1];
+        for item in &new_links {
+            println!("Verifying {:?} before move", &item);
+            assert!(fs::symlink_metadata(&item).unwrap().file_type().is_file());
+            assert!(!fs::symlink_metadata(&item).unwrap().file_type().is_symlink());
         }
 
+
         super::eat_files("http://127.0.0.1:8200", "test12345", &source, &dest);
-        // cleanup
 
         for path in paths {
             let _ = vault_client.delete_secret(&path[..]);
         }
-        // let _ = fs::remove_dir_all(parent);
+
+        for item in &new_links {
+            println!("Verifying {:?} after move", &item);
+            assert!(!fs::symlink_metadata(&item).unwrap().file_type().is_file());
+            assert!(fs::symlink_metadata(&item).unwrap().file_type().is_symlink());
+        }
+
+        assert!(fs::symlink_metadata(&linked_src).unwrap().file_type().is_symlink());
+        // cleanup
+
+
+        let _ = fs::remove_dir_all(parent);
     }
 
     mod dir_lists {
@@ -272,7 +293,16 @@ mod tests {
         use std::fs::{File, DirBuilder};
         use std::fs;
         use std::io::prelude::*;
+        use std::path::PathBuf;
 
+        use crypto::sha1::Sha1;
+        use crypto::digest::Digest;
+
+        fn make_sha(s: &PathBuf) -> String {
+            let mut hasher = Sha1::new();
+            hasher.input_str(&s.to_string_lossy()[..]);
+            hasher.result_str()
+        }
         #[test]
         fn it_reads_a_file_into_vault() {
             let mut dir = temp_dir();
@@ -284,14 +314,12 @@ mod tests {
             dst1.push("test_it_reads_a_file_into_vault_1.txt");
             let mut f = File::create(dst1.clone()).unwrap();
             f.write_all(b"Hello, world!").unwrap();
-
+            let sha = make_sha(&dst1);
             let vault_client = initialize_vault("http://127.0.0.1:8200", "test12345");
-            let _ = put_file_in_vault(&vault_client, &dst1).unwrap();
+            let _ = put_file_in_vault(&vault_client, &dst1, &sha).unwrap();
 
-            // cleanup
-            let path = &dst1.to_string_lossy()[..].replace("/", "_|_");
 
-            let _ = vault_client.delete_secret(path);
+            let _ = vault_client.delete_secret(&sha);
             let _ = fs::remove_dir_all(dir);
         }
 
@@ -307,12 +335,12 @@ mod tests {
             let mut f = File::create(dst1.clone()).unwrap();
             f.write_all(b"Hello, world!").unwrap();
 
+            let sha = make_sha(&dst1);
             let vault_client = initialize_vault("http://127.0.0.1:8200", "test12345");
-            let _ = put_file_in_vault(&vault_client, &dst1).unwrap();
-            let value = read_file_from_vault(&vault_client, &dst1).unwrap();
+            let _ = put_file_in_vault(&vault_client, &dst1, &sha).unwrap();
+            let value = read_file_from_vault(&vault_client, &PathBuf::from(&sha)).unwrap();
 
-            let path = &dst1.to_string_lossy()[..].replace("/", "_|_");
-            let _ = vault_client.delete_secret(path);
+            let _ = vault_client.delete_secret(&sha);
             assert_eq!(value, "Hello, world!");
 
             // cleanup
@@ -414,6 +442,12 @@ fn main() {
     let token = matches.value_of("token").unwrap();
 
     eat_files(vault_host, token, &PathBuf::from(source), &PathBuf::from(destination));
+
+    // inotify.watch(&source) {
+    //     eat_files(vault_host, token, &PathBuf::from(source), &PathBuf::from(destination));
+    // }
+
+
 }
 
 fn eat_files(vault_host: &str, token: &str, source: &PathBuf, destination: &PathBuf) {
@@ -427,6 +461,10 @@ fn eat_files(vault_host: &str, token: &str, source: &PathBuf, destination: &Path
 
     for file in files_to_lock {
         let _ = make_file_link(&file, &PathBuf::from(destination), &vault_client);
+    }
+
+    for file in files_to_link {
+
     }
 }
 
@@ -473,13 +511,17 @@ fn get_files_at_path(path: &PathBuf) -> Vec<PathBuf> {
 }
 
 fn make_file_link(source: &PathBuf, dst: &PathBuf, vault: &Client) -> Result<String, io::Error>{
-    let _ = put_file_in_vault(vault, source);
+    let mut hasher = Sha1::new();
+    hasher.input_str(&source.to_string_lossy()[..]);
+    let hex = hasher.result_str();
+    let _ = put_file_in_vault(vault, source, &hex);
+
     let _ = try!(DirBuilder::new()
                 .recursive(true)
                 .create(&dst));
     let filename = source.file_name().unwrap();
     let mut new_path: PathBuf = dst.clone();
-    new_path.push(filename);
+    new_path.push(hex);
     fs::rename(source, new_path.clone()).unwrap();
     let _ = try!(symlink(new_path, source));
     return Ok("Linked!".to_string())
