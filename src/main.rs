@@ -1,6 +1,7 @@
 #[macro_use] extern crate clap;
 extern crate hashicorp_vault;
 #[macro_use] extern crate log;
+#[cfg(test)] extern crate rand;
 extern crate simple_logger;
 extern crate walkdir;
 
@@ -20,13 +21,26 @@ use vault::{initialize_vault, put_file_in_vault, read_file_from_vault};
 
 #[cfg(test)]
 mod tests {
+    use std::env::{temp_dir as tmp_dir};
+    use std::path::PathBuf;
+
+    use rand;
+    fn temp_dir() -> PathBuf {
+        let y = rand::random::<f64>();
+        // PathBuf::from(format!("{}/{}", tmp_dir(), y))
+        let mut t = tmp_dir();
+        t.push(format!("{}",y));
+        // println!("Providing path of {:?}", t);
+        t
+    }
     mod dir_lists {
         use super::super::{get_files_at_path, get_links_at_path};
-        use std::env::{temp_dir};
         use std::fs::{File, DirBuilder};
         use std::fs;
         use std::path::PathBuf;
+        use super::temp_dir;
         use std::os::unix::fs::symlink;
+
 
         #[test]
         fn it_can_list_files_in_directory() {
@@ -174,7 +188,7 @@ mod tests {
 
     mod vault_insertion {
         use vault::{put_file_in_vault, read_file_from_vault};
-        use std::env::{temp_dir};
+        use super::temp_dir;
         use std::fs::{File, DirBuilder};
         use std::fs;
         use std::io::prelude::*;
@@ -228,7 +242,7 @@ mod tests {
     }
 
     mod file_manipulation {
-        use std::env::{temp_dir};
+        use super::temp_dir;
         use std::fs::{File, DirBuilder};
         use std::fs;
         use vault::{initialize_vault};
