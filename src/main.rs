@@ -53,10 +53,26 @@ mod tests {
         hasher.result_str()
     }
 
+    fn create_file(dir: &PathBuf, subpath: &str, content: Option<&str>) -> PathBuf {
+        let mut new_path = dir.clone();
+        new_path.push(subpath);
+        if content.is_some() {
+            let mut f = File::create(&new_path).unwrap();
+            f.write_all(content.unwrap().as_bytes()).unwrap();
+        }
+        new_path
+    }
+
+    fn create_dir(dir: &PathBuf) {
+        let _ = DirBuilder::new()
+                .recursive(true)
+                .create(&dir).unwrap();
+    }
+
     #[test]
     fn it_can_eat_a_directory() {
         let vault_client = initialize_vault("http://127.0.0.1:8200", "test12345");
-        let mut paths: Vec<String> = vec![];
+
         let parent = temp_dir();
 
         let mut source = parent.clone();
@@ -64,74 +80,50 @@ mod tests {
         let mut dest = parent.clone();
         dest.push("dest");
 
-        let _ = DirBuilder::new()
-                .recursive(true)
-                .create(&source).unwrap();
-
-        let _ = DirBuilder::new()
-                .recursive(true)
-                .create(&dest).unwrap();
+        create_dir(&source);
+        create_dir(&dest);
 
         println!("Created dirs, starting on files");
-        let mut dst1 = source.clone();
-        let mut dst2 = source.clone();
-        let mut dst3 = source.clone();
-        dst1.push("test_1.txt");
-        paths.push(make_sha(&dst1));
-        dst2.push("test_2.txt");
-        paths.push(make_sha(&dst2));
+        let dst1 = create_file(&source, "test_1.txt", Some("test1"));
+        let dst2 = create_file(&source, "test_2.txt", Some("test2"));
         // symlink target
-        dst3.push("test_3.txt");
-        paths.push(make_sha(&dst3));
-        let mut f = File::create(dst1.clone()).unwrap();
-        f.write_all(b"test1").unwrap();
-        let mut f = File::create(dst2.clone()).unwrap();
-        f.write_all(b"test2").unwrap();
+        let dst3 = create_file(&source, "test_3.txt", Some("text3"));
 
-        println!("Creating first subfolder");
-        let mut subfolder1 = source.clone();
-        subfolder1.push("test");
-        let _ = DirBuilder::new()
-                .recursive(true)
-                .create(&subfolder1).unwrap();
-        subfolder1.push("test_4.txt");
-        paths.push(make_sha(&subfolder1));
-        let mut f = File::create(subfolder1.clone()).unwrap();
-        f.write_all(b"test4").unwrap();
-        println!("Created subfolder's file");
+        let subfolder1 = create_file(&source, "test", None);
+
+        create_dir(&subfolder1);
+        let subfolder1 = create_file(&subfolder1, "test_4.txt", Some("text4"));
+
 
         let mut linked_src = source.clone();
         linked_src.push("test_3.txt");
-        println!("About to create test_3");
-        paths.push(make_sha(&linked_src));
+
         let mut f = File::create(linked_src.clone()).unwrap();
         f.write_all(b"test3").unwrap();
-        println!("Created test_3");
 
         let _ = super::make_file_link(&linked_src, &dest, &vault_client);
 
-        println!("Made link!");
-        let mut linked_dst = dest.clone();
-        linked_dst.push(make_sha(&linked_src));
+        let linked_dst = create_file(&dest, &make_sha(&linked_src)[..], None);
+
         let _ = fs::remove_file(&linked_dst).unwrap();
         // let _ = symlink(linked_dst, dst3);
 
-        println!("Created symlink");
-
-        let new_links = vec![dst1, dst2, subfolder1];
+        let new_links = vec![&dst1, &dst2, &subfolder1];
         for item in &new_links {
             println!("Verifying {:?} before move", &item);
             assert!(fs::symlink_metadata(&item).unwrap().file_type().is_file());
             assert!(!fs::symlink_metadata(&item).unwrap().file_type().is_symlink());
         }
-        for entry in WalkDir::new(&parent) {
-            println!("Have {:?}", entry);
-        }
-        // panic!();
+
         super::eat_files("http://127.0.0.1:8200", "test12345", &source, &dest);
-        for entry in WalkDir::new(&parent) {
-            println!("Have {:?}", entry);
-        }
+
+        let paths: Vec<String> = vec![
+            make_sha(&dst1),
+            make_sha(&dst2),
+            make_sha(&dst3),
+            make_sha(&subfolder1),
+            make_sha(&linked_src),
+        ];
         for path in paths {
             let _ = vault_client.delete_secret(&path[..]);
         }
@@ -141,12 +133,12 @@ mod tests {
             assert!(!fs::symlink_metadata(&item).unwrap().file_type().is_file());
             assert!(fs::symlink_metadata(&item).unwrap().file_type().is_symlink());
         }
-
+        println!("Verifying {:?} after move", &linked_src);
         assert!(fs::symlink_metadata(&linked_src).unwrap().file_type().is_symlink());
         assert!(fs::metadata(&linked_src).unwrap().file_type().is_file());
         // cleanup
 
-        // let _ = fs::remove_dir_all(parent);
+        let _ = fs::remove_dir_all(parent);
     }
 
     mod dir_lists {
@@ -160,23 +152,14 @@ mod tests {
 
         #[test]
         fn it_can_list_files_in_directory() {
-            let mut dir = temp_dir();
-            dir.push("vault_test_ls_files");
-            let _ = DirBuilder::new()
-                .recursive(true)
-                .create(&dir).unwrap();
-            let mut dst1 = dir.clone();
-            let mut dst2 = dir.clone();
-            dst1.push("test_1.txt");
-            dst2.push("test_2.txt");
-            let _ = File::create(dst1.clone()).unwrap();
-            let _ = File::create(dst2.clone()).unwrap();
-
+            let dir = super::create_file(&temp_dir(), "", None);
+            super::create_dir(&dir);
+            let dst1 = super::create_file(&dir, "test_1.txt", None);
+            let dst2 = super::create_file(&dir, "test_2.txt", None);
             let expected = vec![
                 dst1,
                 dst2,
             ].sort();
-
             assert_eq!(get_files_at_path(&dir).sort(), expected);
 
             // cleanup
@@ -185,27 +168,15 @@ mod tests {
 
         #[test]
         fn it_ignores_symlinks() {
-            let mut dir = temp_dir();
-            dir.push("vault_test_ls_link");
-            let _ = DirBuilder::new()
-                .recursive(true)
-                .create(&dir).unwrap();
+            let dir = super::create_file(&temp_dir(), "", None);
+            super::create_dir(&dir);
 
-            let mut dst_dir = temp_dir();
-            dst_dir.push("vault_test_ls_link_dst");
-            let _ = DirBuilder::new()
-                .recursive(true)
-                .create(&dst_dir);
+            let dst_dir = super::create_file(&temp_dir(), "", None);
+            super::create_dir(&dst_dir);
 
-            let mut dst1 = dir.clone();
-            let mut dst2 = dst_dir.clone();
-            let mut dst3 = dir.clone();
-            dst1.push("test_1.txt");
-            dst2.push("test_2.txt");
-            dst3.push("test_2.txt");
-            let _ = File::create(dst1.clone()).unwrap();
-            let _ = File::create(dst2.clone()).unwrap();
-            let _ = File::create(dst3.clone()).unwrap();
+            let dst1 = super::create_file(&dir, "test_1.txt", None);
+            let dst2 = super::create_file(&dst_dir, "test_2.txt", None);
+            let dst3 = super::create_file(&dir, "test_2.txt", None);
 
             let _ = symlink(dst2, dst3);
 
@@ -222,21 +193,14 @@ mod tests {
 
         #[test]
         fn it_ignores_directories() {
-            let mut dir = temp_dir();
-            dir.push("vault_test_ls_ignore");
-            let _ = DirBuilder::new()
-                .recursive(true)
-                .create(&dir).unwrap();
-            let mut dst1 = dir.clone();
-            let mut dst2 = dir.clone();
-            dst1.push("test_1.txt");
-            dst2.push("recurse_test");
-            let _ = DirBuilder::new()
-                .recursive(true)
-                .create(&dst2).unwrap();
-            dst2.push("test_1.txt");
-            let _ = File::create(dst1.clone()).unwrap();
-            let _ = File::create(dst2.clone()).unwrap();
+            let dir = super::create_file(&temp_dir(), "", None);
+            super::create_dir(&dir);
+
+            let dst1 = super::create_file(&dir, "test_1.txt", None);
+            let dst2 = super::create_file(&dir, "recurse", None);
+            super::create_dir(&dst2);
+
+            let dst2 = super::create_file(&dst2, "test_2.txt", None);
 
             let expected = vec![
                 dst1,
@@ -249,14 +213,10 @@ mod tests {
 
         #[test]
         fn it_returns_empty_with_non_dir() {
-            let mut dir = temp_dir();
-            dir.push("vault_test_ls_non_dir");
-            let _ = DirBuilder::new()
-                .recursive(true)
-                .create(&dir).unwrap();
-            let mut dst1 = dir.clone();
-            dst1.push("test_1.txt");
-            let _ = File::create(dst1.clone()).unwrap();
+            let dir = super::create_file(&temp_dir(), "", None);
+            super::create_dir(&dir);
+
+            let dst1 = super::create_file(&dir, "test_1.txt", None);
             let v : Vec<PathBuf> = vec![];
             assert_eq!(get_files_at_path(&dst1), v);
 
@@ -266,29 +226,16 @@ mod tests {
 
         #[test]
         fn it_lists_links_at_path() {
-            let mut dir = temp_dir();
-            dir.push("vault_test_ls_links");
-            let _ = DirBuilder::new()
-                .recursive(true)
-                .create(&dir).unwrap();
+            let dir = super::create_file(&temp_dir(), "", None);
+            super::create_dir(&dir);
 
-            let mut dst_dir = temp_dir();
-            dst_dir.push("vault_test_ls_dst");
-            let _ = DirBuilder::new()
-                .recursive(true)
-                .create(&dst_dir);
+            let dst_dir = super::create_file(&temp_dir(), "", None);
+            super::create_dir(&dir);
 
-            let mut dst1 = dir.clone();
-            let mut dst2 = dst_dir.clone();
-            let mut dst3 = dir.clone();
-            dst1.push("test_1.txt");
-            dst2.push("test_2.txt");
-            dst3.push("test_2.txt");
-            let _ = File::create(dst1.clone()).unwrap();
-            let _ = File::create(dst2.clone()).unwrap();
-            let _ = File::create(dst3.clone()).unwrap();
-
-            let _ = symlink(dst2, dst3.clone());
+            let dst1 = super::create_file(&dir, "test_1.txt", None);
+            let dst2 = super::create_file(&dst_dir, "test_2.txt", None);
+            let dst3 = super::create_file(&dir, "test_2.txt", None);
+            let _ = symlink(&dst2, &dst3);
 
             let expected = vec![
                 dst3,
@@ -312,15 +259,9 @@ mod tests {
 
         #[test]
         fn it_reads_a_file_into_vault() {
-            let mut dir = temp_dir();
-            dir.push("vault_test_ls_vault_in");
-            let _ = DirBuilder::new()
-                .recursive(true)
-                .create(&dir);
-            let mut dst1 = dir.clone();
-            dst1.push("test_it_reads_a_file_into_vault_1.txt");
-            let mut f = File::create(dst1.clone()).unwrap();
-            f.write_all(b"Hello, world!").unwrap();
+            let dir = super::create_file(&temp_dir(), "", None);
+            super::create_dir(&dir);
+            let dst1 = super::create_file(&dir, "test_1.txt", Some("Hello, world!"));
             let sha = super::make_sha(&dst1);
             let vault_client = initialize_vault("http://127.0.0.1:8200", "test12345");
             let _ = put_file_in_vault(&vault_client, &dst1, &sha).unwrap();
@@ -332,15 +273,9 @@ mod tests {
 
         #[test]
         fn it_read_file_out_of_vault() {
-            let mut dir = temp_dir();
-            dir.push("vault_test_ls_vault_out");
-            let _ = DirBuilder::new()
-                .recursive(true)
-                .create(&dir);
-            let mut dst1 = dir.clone();
-            dst1.push("test_it_read_file_out_of_vault_1.txt");
-            let mut f = File::create(dst1.clone()).unwrap();
-            f.write_all(b"Hello, world!").unwrap();
+            let dir = super::create_file(&temp_dir(), "", None);
+            super::create_dir(&dir);
+            let dst1 = super::create_file(&dir, "test_1.txt", Some("Hello, world!"));
 
             let sha = super::make_sha(&dst1);
             let vault_client = initialize_vault("http://127.0.0.1:8200", "test12345");
@@ -365,19 +300,12 @@ mod tests {
 
         #[test]
         fn it_replaces_old_file_with_link_to_new_file() {
-            let mut dir = temp_dir();
-            let mut dst_dir = dir.clone();
-            dir.push("vault_test_link_src");
+            let dir = super::create_file(&temp_dir(), "", None);
+            super::create_dir(&dir);
 
-            let _ = DirBuilder::new()
-                .recursive(true)
-                .create(&dir).unwrap();
-            dst_dir.push("vault_test_link_dst");
+            let dst_dir = super::create_file(&temp_dir(), "", None);
+            let dst1 = super::create_file(&dir, "test_1.txt", Some("Hello, world!"));
 
-            let mut dst1 = dir.clone();
-            dst1.push("file_manipulation_test_1.txt");
-            let _ = File::create(dst1.clone()).unwrap();
-            let path = &dst1.to_string_lossy()[..].replace("/", "_|_");
             let vault_client = initialize_vault("http://127.0.0.1:8200", "test12345");
 
             assert_eq!(super::super::get_links_at_path(&dir).len(), 0);
@@ -393,7 +321,7 @@ mod tests {
             assert_eq!(super::super::get_files_at_path(&dst_dir).len(), 1);
 
             // cleanup
-            let _ = vault_client.delete_secret(path);
+            let _ = vault_client.delete_secret(&super::make_sha(&dst1)[..]);
             let _ = fs::remove_dir_all(dir);
             let _ = fs::remove_dir_all(dst_dir);
         }
@@ -471,7 +399,6 @@ fn eat_files(vault_host: &str, token: &str, source: &PathBuf, destination: &Path
     }
 
     for file in files_to_link {
-        println!("Trying to restore {:?}", file);
         let _ = restore_file_at_path(&file, &PathBuf::from(destination), &vault_client);
     }
 }
@@ -540,7 +467,6 @@ fn restore_file_at_path(source: &PathBuf, dst: &PathBuf, vault: &Client) -> Resu
     hasher.input_str(&source.to_string_lossy()[..]);
     let hex = hasher.result_str();
     let tmp_string = read_file_from_vault(vault, &hex);
-    println!("Tmp str = {:?}", tmp_string);
     let mut dst_path = PathBuf::from(dst);
     dst_path.push(hex);
 
