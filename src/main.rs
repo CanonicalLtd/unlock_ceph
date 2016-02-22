@@ -29,13 +29,11 @@ mod tests {
     use std::fs::{File, DirBuilder};
     use std::fs;
     use std::io::prelude::*;
-    use std::os::unix::fs::symlink;
     use std::path::PathBuf;
 
     use crypto::sha1::Sha1;
     use crypto::digest::Digest;
     use vault::{initialize_vault};
-    use walkdir::WalkDir;
 
     use rand;
     fn temp_dir() -> PathBuf {
@@ -143,7 +141,6 @@ mod tests {
 
     mod dir_lists {
         use super::super::{get_files_at_path, get_links_at_path};
-        use std::fs::{File, DirBuilder};
         use std::fs;
         use std::path::PathBuf;
         use super::temp_dir;
@@ -232,7 +229,7 @@ mod tests {
             let dst_dir = super::create_file(&temp_dir(), "", None);
             super::create_dir(&dir);
 
-            let dst1 = super::create_file(&dir, "test_1.txt", None);
+            let _ = super::create_file(&dir, "test_1.txt", None);
             let dst2 = super::create_file(&dst_dir, "test_2.txt", None);
             let dst3 = super::create_file(&dir, "test_2.txt", None);
             let _ = symlink(&dst2, &dst3);
@@ -252,10 +249,7 @@ mod tests {
     mod vault_insertion {
         use vault::{put_file_in_vault, read_file_from_vault, initialize_vault};
         use super::temp_dir;
-        use std::fs::{File, DirBuilder};
         use std::fs;
-        use std::io::prelude::*;
-        use std::path::PathBuf;
 
         #[test]
         fn it_reads_a_file_into_vault() {
@@ -292,7 +286,6 @@ mod tests {
 
     mod file_manipulation {
         use super::temp_dir;
-        use std::fs::{File, DirBuilder};
         use std::fs;
         use vault::{initialize_vault};
 
@@ -454,7 +447,7 @@ fn make_file_link(source: &PathBuf, dst: &PathBuf, vault: &Client) -> Result<Str
     let _ = try!(DirBuilder::new()
                 .recursive(true)
                 .create(&dst));
-    let filename = source.file_name().unwrap();
+    // let filename = source.file_name().unwrap();
     let mut new_path: PathBuf = dst.clone();
     new_path.push(hex);
     fs::rename(source, new_path.clone()).unwrap();
@@ -471,7 +464,7 @@ fn restore_file_at_path(source: &PathBuf, dst: &PathBuf, vault: &Client) -> Resu
     dst_path.push(hex);
 
     let mut f = File::create(dst_path.clone()).unwrap();
-    let _ = f.write_all(b"test1");
+    let _ = f.write_all(tmp_string.unwrap().as_bytes());
 
     Ok("Str".to_string())
 }
