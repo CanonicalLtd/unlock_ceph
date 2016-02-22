@@ -22,17 +22,97 @@ use vault::{initialize_vault, put_file_in_vault, read_file_from_vault};
 #[cfg(test)]
 mod tests {
     use std::env::{temp_dir as tmp_dir};
+    use std::fs::{File, DirBuilder};
+    use std::fs;
+    use std::os::unix::fs::symlink;
     use std::path::PathBuf;
+
+    use vault::{initialize_vault};
+    use walkdir::WalkDir;
 
     use rand;
     fn temp_dir() -> PathBuf {
         let y = rand::random::<f64>();
         // PathBuf::from(format!("{}/{}", tmp_dir(), y))
         let mut t = tmp_dir();
-        t.push(format!("{}",y));
+        t.push(format!("unlock_ceph/{}",y));
         // println!("Providing path of {:?}", t);
         t
     }
+
+    #[test]
+    fn it_can_eat_a_directory() {
+        let vault_client = initialize_vault("http://127.0.0.1:8200", "test12345");
+        let mut paths: Vec<String> = vec![];
+        let parent = temp_dir();
+
+        let mut source = parent.clone();
+        source.push("source");
+        let mut dest = parent.clone();
+        dest.push("dest");
+
+        let _ = DirBuilder::new()
+                .recursive(true)
+                .create(&source).unwrap();
+
+        let _ = DirBuilder::new()
+                .recursive(true)
+                .create(&dest).unwrap();
+
+        println!("Created dirs, starting on files");
+        let mut dst1 = source.clone();
+        let mut dst2 = source.clone();
+        let mut dst3 = source.clone();
+        dst1.push("test_1.txt");
+        paths.push(dst1.to_string_lossy().replace("/", "_|_"));
+        dst2.push("test_2.txt");
+        paths.push(dst2.to_string_lossy().replace("/", "_|_"));
+        // symlink target
+        dst3.push("test_3.txt");
+        paths.push(dst3.to_string_lossy().replace("/", "_|_"));
+        let _ = File::create(dst1.clone()).unwrap();
+        let _ = File::create(dst2.clone()).unwrap();
+
+        println!("Creating first subfolder");
+        let mut subfolder1 = source.clone();
+        subfolder1.push("test");
+        let _ = DirBuilder::new()
+                .recursive(true)
+                .create(&subfolder1).unwrap();
+        subfolder1.push("test_4.txt");
+        paths.push(subfolder1.to_string_lossy().replace("/", "_|_"));
+        let _ = File::create(subfolder1.clone()).unwrap();
+        println!("Created subfolder's file");
+
+        let mut linked_src = source.clone();
+        linked_src.push("test_5.txt");
+        let _ = File::create(linked_src.clone()).unwrap();
+
+        let mut linked_dst = dest.clone();
+        linked_dst.push("test_5.txt");
+
+        let _ = super::make_file_link(&linked_src, &dest, &vault_client);
+        let path = &linked_src.to_string_lossy().replace("/", "_|_");
+
+        fs::remove_file(linked_src);
+        // let _ = symlink(linked_dst, dst3);
+
+        println!("Created symlink");
+        for d in WalkDir::new(&parent).into_iter().filter_map(|e| e.ok()) {
+            println!(
+                "Have file: {:?}",
+                d.path());
+        }
+
+        super::eat_files("http://127.0.0.1:8200", "test12345", &source, &dest);
+        // cleanup
+
+        for path in paths {
+            let _ = vault_client.delete_secret(&path[..]);
+        }
+        // let _ = fs::remove_dir_all(parent);
+    }
+
     mod dir_lists {
         use super::super::{get_files_at_path, get_links_at_path};
         use std::fs::{File, DirBuilder};
@@ -187,13 +267,12 @@ mod tests {
     }
 
     mod vault_insertion {
-        use vault::{put_file_in_vault, read_file_from_vault};
+        use vault::{put_file_in_vault, read_file_from_vault, initialize_vault};
         use super::temp_dir;
         use std::fs::{File, DirBuilder};
         use std::fs;
         use std::io::prelude::*;
 
-        use vault::{initialize_vault};
         #[test]
         fn it_reads_a_file_into_vault() {
             let mut dir = temp_dir();
@@ -209,9 +288,9 @@ mod tests {
             let vault_client = initialize_vault("http://127.0.0.1:8200", "test12345");
             let _ = put_file_in_vault(&vault_client, &dst1).unwrap();
 
+            // cleanup
             let path = &dst1.to_string_lossy()[..].replace("/", "_|_");
 
-            // cleanup
             let _ = vault_client.delete_secret(path);
             let _ = fs::remove_dir_all(dir);
         }
@@ -334,13 +413,16 @@ fn main() {
     let vault_host = matches.value_of("vault").unwrap();
     let token = matches.value_of("token").unwrap();
 
-    debug!("Syncing {} with {}, using vault at {}", source, destination, vault_host);
+    eat_files(vault_host, token, &PathBuf::from(source), &PathBuf::from(destination));
+}
 
+fn eat_files(vault_host: &str, token: &str, source: &PathBuf, destination: &PathBuf) {
+    debug!("Syncing {:?} with {:?}, using vault at {}", source, destination, vault_host);
     let vault_client = initialize_vault(vault_host, token);
 
-    let files_to_link = get_links_at_path(&PathBuf::from(source));
+    let files_to_link = get_links_at_path(source);
 
-    let files_to_lock = get_files_at_path(&PathBuf::from(source));
+    let files_to_lock = get_files_at_path(source);
     trace!("About to move {:?}", files_to_lock);
 
     for file in files_to_lock {
