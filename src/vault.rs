@@ -27,7 +27,7 @@ pub fn put_file_in_vault(vault: &Client, file: &PathBuf, hex: &String) -> Result
     Ok("".to_string())
 }
 
-pub fn read_file_from_vault<'a>(vault: &'a Client, file: &'a PathBuf) -> Result<String, String> {
-    let path = path_to_str!(file);
+pub fn read_file_from_vault<'a>(vault: &'a Client, path: &String) -> Result<String, String> {
+    // let path = path_to_str!(file);
     vault.get_secret(path).map_err(|e| e.to_string())
 }

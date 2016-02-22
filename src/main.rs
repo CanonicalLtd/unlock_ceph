@@ -9,6 +9,7 @@ extern crate walkdir;
 use std::fs;
 use std::fs::{File, DirBuilder};
 use std::io;
+use std::io::prelude::*;
 use std::os::unix::fs::symlink;
 use std::path::PathBuf;
 
@@ -31,6 +32,8 @@ mod tests {
     use std::os::unix::fs::symlink;
     use std::path::PathBuf;
 
+    use crypto::sha1::Sha1;
+    use crypto::digest::Digest;
     use vault::{initialize_vault};
     use walkdir::WalkDir;
 
@@ -42,6 +45,12 @@ mod tests {
         t.push(format!("unlock_ceph/{}",y));
         // println!("Providing path of {:?}", t);
         t
+    }
+
+    fn make_sha(s: &PathBuf) -> String {
+        let mut hasher = Sha1::new();
+        hasher.input_str(&s.to_string_lossy()[..]);
+        hasher.result_str()
     }
 
     #[test]
@@ -68,12 +77,12 @@ mod tests {
         let mut dst2 = source.clone();
         let mut dst3 = source.clone();
         dst1.push("test_1.txt");
-        paths.push(dst1.to_string_lossy().replace("/", "_|_"));
+        paths.push(make_sha(&dst1));
         dst2.push("test_2.txt");
-        paths.push(dst2.to_string_lossy().replace("/", "_|_"));
+        paths.push(make_sha(&dst2));
         // symlink target
         dst3.push("test_3.txt");
-        paths.push(dst3.to_string_lossy().replace("/", "_|_"));
+        paths.push(make_sha(&dst3));
         let mut f = File::create(dst1.clone()).unwrap();
         f.write_all(b"test1").unwrap();
         let mut f = File::create(dst2.clone()).unwrap();
@@ -86,23 +95,25 @@ mod tests {
                 .recursive(true)
                 .create(&subfolder1).unwrap();
         subfolder1.push("test_4.txt");
-        paths.push(subfolder1.to_string_lossy().replace("/", "_|_"));
+        paths.push(make_sha(&subfolder1));
         let mut f = File::create(subfolder1.clone()).unwrap();
         f.write_all(b"test4").unwrap();
         println!("Created subfolder's file");
 
         let mut linked_src = source.clone();
         linked_src.push("test_3.txt");
+        println!("About to create test_3");
+        paths.push(make_sha(&linked_src));
         let mut f = File::create(linked_src.clone()).unwrap();
         f.write_all(b"test3").unwrap();
-
-        let mut linked_dst = dest.clone();
-        linked_dst.push("test_3.txt");
+        println!("Created test_3");
 
         let _ = super::make_file_link(&linked_src, &dest, &vault_client);
-        let path = &linked_src.to_string_lossy().replace("/", "_|_");
 
-        fs::remove_file(&linked_src);
+        println!("Made link!");
+        let mut linked_dst = dest.clone();
+        linked_dst.push(make_sha(&linked_src));
+        let _ = fs::remove_file(&linked_dst).unwrap();
         // let _ = symlink(linked_dst, dst3);
 
         println!("Created symlink");
@@ -113,10 +124,14 @@ mod tests {
             assert!(fs::symlink_metadata(&item).unwrap().file_type().is_file());
             assert!(!fs::symlink_metadata(&item).unwrap().file_type().is_symlink());
         }
-
-
+        for entry in WalkDir::new(&parent) {
+            println!("Have {:?}", entry);
+        }
+        // panic!();
         super::eat_files("http://127.0.0.1:8200", "test12345", &source, &dest);
-
+        for entry in WalkDir::new(&parent) {
+            println!("Have {:?}", entry);
+        }
         for path in paths {
             let _ = vault_client.delete_secret(&path[..]);
         }
@@ -128,10 +143,10 @@ mod tests {
         }
 
         assert!(fs::symlink_metadata(&linked_src).unwrap().file_type().is_symlink());
+        assert!(fs::metadata(&linked_src).unwrap().file_type().is_file());
         // cleanup
 
-
-        let _ = fs::remove_dir_all(parent);
+        // let _ = fs::remove_dir_all(parent);
     }
 
     mod dir_lists {
@@ -295,14 +310,6 @@ mod tests {
         use std::io::prelude::*;
         use std::path::PathBuf;
 
-        use crypto::sha1::Sha1;
-        use crypto::digest::Digest;
-
-        fn make_sha(s: &PathBuf) -> String {
-            let mut hasher = Sha1::new();
-            hasher.input_str(&s.to_string_lossy()[..]);
-            hasher.result_str()
-        }
         #[test]
         fn it_reads_a_file_into_vault() {
             let mut dir = temp_dir();
@@ -314,7 +321,7 @@ mod tests {
             dst1.push("test_it_reads_a_file_into_vault_1.txt");
             let mut f = File::create(dst1.clone()).unwrap();
             f.write_all(b"Hello, world!").unwrap();
-            let sha = make_sha(&dst1);
+            let sha = super::make_sha(&dst1);
             let vault_client = initialize_vault("http://127.0.0.1:8200", "test12345");
             let _ = put_file_in_vault(&vault_client, &dst1, &sha).unwrap();
 
@@ -335,10 +342,10 @@ mod tests {
             let mut f = File::create(dst1.clone()).unwrap();
             f.write_all(b"Hello, world!").unwrap();
 
-            let sha = make_sha(&dst1);
+            let sha = super::make_sha(&dst1);
             let vault_client = initialize_vault("http://127.0.0.1:8200", "test12345");
             let _ = put_file_in_vault(&vault_client, &dst1, &sha).unwrap();
-            let value = read_file_from_vault(&vault_client, &PathBuf::from(&sha)).unwrap();
+            let value = read_file_from_vault(&vault_client, &sha).unwrap();
 
             let _ = vault_client.delete_secret(&sha);
             assert_eq!(value, "Hello, world!");
@@ -464,7 +471,8 @@ fn eat_files(vault_host: &str, token: &str, source: &PathBuf, destination: &Path
     }
 
     for file in files_to_link {
-
+        println!("Trying to restore {:?}", file);
+        let _ = restore_file_at_path(&file, &PathBuf::from(destination), &vault_client);
     }
 }
 
@@ -527,3 +535,17 @@ fn make_file_link(source: &PathBuf, dst: &PathBuf, vault: &Client) -> Result<Str
     return Ok("Linked!".to_string())
 }
 
+fn restore_file_at_path(source: &PathBuf, dst: &PathBuf, vault: &Client) -> Result<String, io::Error> {
+    let mut hasher = Sha1::new();
+    hasher.input_str(&source.to_string_lossy()[..]);
+    let hex = hasher.result_str();
+    let tmp_string = read_file_from_vault(vault, &hex);
+    println!("Tmp str = {:?}", tmp_string);
+    let mut dst_path = PathBuf::from(dst);
+    dst_path.push(hex);
+
+    let mut f = File::create(dst_path.clone()).unwrap();
+    let _ = f.write_all(b"test1");
+
+    Ok("Str".to_string())
+}
