@@ -123,7 +123,7 @@ mod tests {
         use std::env::{temp_dir};
         use std::fs::{File, DirBuilder};
         use std::io::prelude::*;
-
+        use std::thread;
 
         use vault::{initialize_vault};
         #[test]
@@ -134,7 +134,7 @@ mod tests {
                 .recursive(true)
                 .create(&dir);
             let mut dst1 = dir.clone();
-            dst1.push("test_1.txt");
+            dst1.push("test_it_reads_a_file_into_vault_1.txt");
             let mut f = File::create(dst1.clone()).unwrap();
             f.write_all(b"Hello, world!").unwrap();
 
@@ -154,13 +154,12 @@ mod tests {
                 .recursive(true)
                 .create(&dir);
             let mut dst1 = dir.clone();
-            dst1.push("test_1.txt");
+            dst1.push("test_it_read_file_out_of_vault_1.txt");
             let mut f = File::create(dst1.clone()).unwrap();
             f.write_all(b"Hello, world!").unwrap();
 
             let vault_client = initialize_vault("http://127.0.0.1:8200", "test12345");
             let _ = put_file_in_vault(&vault_client, &dst1).unwrap();
-
             let value = read_file_from_vault(&vault_client, &dst1).unwrap();
 
             let path = &dst1.to_string_lossy()[..].replace("/", "_|_");
