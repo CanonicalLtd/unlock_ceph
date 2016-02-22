@@ -23,7 +23,7 @@ pub fn put_file_in_vault(vault: &Client, file: &PathBuf) -> Result<String, io::E
 
     let path = path_to_str!(file);
 
-    vault.set_secret(path, &s[..]);
+    let _ = vault.set_secret(path, &s[..]);
     Ok("".to_string())
 }
 
