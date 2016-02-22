@@ -120,7 +120,7 @@ mod tests {
         #[test]
         fn it_returns_empty_with_non_dir() {
             let mut dir = temp_dir();
-            dir.push("vault_test_ls");
+            dir.push("vault_test_ls_non_dir");
             let _ = DirBuilder::new()
                 .recursive(true)
                 .create(&dir).unwrap();
@@ -137,7 +137,7 @@ mod tests {
         #[test]
         fn it_lists_links_at_path() {
             let mut dir = temp_dir();
-            dir.push("vault_test_ls");
+            dir.push("vault_test_ls_links");
             let _ = DirBuilder::new()
                 .recursive(true)
                 .create(&dir).unwrap();
