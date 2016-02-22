@@ -123,7 +123,6 @@ mod tests {
         use std::env::{temp_dir};
         use std::fs::{File, DirBuilder};
         use std::io::prelude::*;
-        use std::thread;
 
         use vault::{initialize_vault};
         #[test]
