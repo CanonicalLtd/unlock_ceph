@@ -68,6 +68,42 @@ mod tests {
     }
 
     #[test]
+    fn it_restores_a_file_correctly() {
+        let vault_client = initialize_vault("http://127.0.0.1:8200", "test12345");
+
+        let parent = temp_dir();
+
+        let mut source = parent.clone();
+        source.push("source");
+        let mut dest = parent.clone();
+        dest.push("dest");
+
+        create_dir(&source);
+        create_dir(&dest);
+
+        let mut linked_src = source.clone();
+        linked_src.push("test_1.txt");
+
+        let mut f = File::create(linked_src.clone()).unwrap();
+        f.write_all(b"test1").unwrap();
+
+        let _ = super::make_file_link(&linked_src, &dest, &vault_client);
+
+        let linked_dst = create_file(&dest, &make_sha(&linked_src)[..], None);
+
+        let _ = fs::remove_file(&linked_dst).unwrap();
+
+        super::eat_files("http://127.0.0.1:8200", "test12345", &source, &dest);
+        let _ = vault_client.delete_secret(&make_sha(&linked_src)[..]);
+        let mut f = File::open(linked_src).unwrap();
+        let mut s = String::new();
+        f.read_to_string(&mut s).unwrap();
+
+        let _ = fs::remove_dir_all(parent);
+        assert_eq!("test1", s);
+    }
+
+    #[test]
     fn it_can_eat_a_directory() {
         let vault_client = initialize_vault("http://127.0.0.1:8200", "test12345");
 
