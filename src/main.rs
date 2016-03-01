@@ -404,12 +404,19 @@ fn main() {
     let destination = matches.value_of("destination").unwrap();
     let vault_host = matches.value_of("vault").unwrap();
     let token = matches.value_of("token").unwrap();
+    let from = PathBuf::from(source);
+    let to = PathBuf::from(destination);
 
-    eat_files(vault_host, token, &PathBuf::from(source), &PathBuf::from(destination));
+    eat_files(vault_host, token, &from, &to);
 
     // inotify.watch(&source) {
     //     eat_files(vault_host, token, &PathBuf::from(source), &PathBuf::from(destination));
     // }
+
+    loop {
+        std::thread::sleep(std::time::Duration::new(10, 0));
+        eat_files(vault_host, token, &from, &to);
+    }
 
 
 }
