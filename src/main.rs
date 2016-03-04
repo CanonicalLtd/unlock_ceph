@@ -118,7 +118,7 @@ mod tests {
         create_dir(&dest);
 
         println!("Created dirs, starting on files");
-        let dst1 = create_file(&source, "test_1.txt", Some("test1"));
+        let dst1 = create_file(&source, "test_1.txt", Some("test1\n"));
         let dst2 = create_file(&source, "test_2.txt", Some("test2"));
         // symlink target
         let dst3 = create_file(&source, "test_3.txt", Some("text3"));

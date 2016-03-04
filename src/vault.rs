@@ -15,8 +15,7 @@ pub fn put_file_in_vault(vault: &Client, file: &PathBuf, hex: &String) -> Result
     let mut f = try!(File::open(file));
     let mut s = String::new();
     try!(f.read_to_string(&mut s));
-
-    let _ = vault.set_secret(&hex[..], &s[..]);
+    let _ = vault.set_secret(&hex[..], &s[..].replace("\n", "\\n")).unwrap();
     Ok("".to_string())
 }
 
