@@ -408,7 +408,6 @@ fn main() {
     let to = PathBuf::from(destination);
 
     eat_files(vault_host, token, &from, &to);
-
     // inotify.watch(&source) {
     //     eat_files(vault_host, token, &PathBuf::from(source), &PathBuf::from(destination));
     // }
@@ -485,8 +484,14 @@ fn make_file_link(source: &PathBuf, dst: &PathBuf, vault: &Client) -> Result<Str
     let mut hasher = Sha1::new();
     hasher.input_str(&source.to_string_lossy()[..]);
     let hex = hasher.result_str();
-    let _ = put_file_in_vault(vault, source, &hex);
-
+    let mut f = try!(File::open(source));
+    let mut input_string = String::new();
+    try!(f.read_to_string(&mut input_string));
+    let _ = put_file_in_vault(vault, &input_string, &hex);
+    let res = read_file_from_vault(vault, &hex).unwrap();
+    if res != input_string {
+        panic!("Did not read the same thing as we set!");
+    }
     let _ = try!(DirBuilder::new()
                 .recursive(true)
                 .create(&dst));
@@ -502,12 +507,12 @@ fn restore_file_at_path(source: &PathBuf, dst: &PathBuf, vault: &Client) -> Resu
     let mut hasher = Sha1::new();
     hasher.input_str(&source.to_string_lossy()[..]);
     let hex = hasher.result_str();
-    let tmp_string = read_file_from_vault(vault, &hex);
+    let tmp_string = read_file_from_vault(vault, &hex).unwrap();
     let mut dst_path = PathBuf::from(dst);
     dst_path.push(hex);
 
     let mut f = File::create(dst_path.clone()).unwrap();
-    let _ = f.write_all(tmp_string.unwrap().as_bytes());
+    let _ = f.write_all(tmp_string.as_bytes());
 
     Ok("Str".to_string())
 }

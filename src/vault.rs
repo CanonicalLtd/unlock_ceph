@@ -1,6 +1,3 @@
-use std::path::PathBuf;
-use std::fs::File;
-use std::io::prelude::*;
 use std::io;
 
 use hashicorp_vault::Client;
@@ -11,11 +8,8 @@ pub fn initialize_vault<'a>(host: &'a str, token: &'a str) -> Client<'a> {
     Client::new(host, token).unwrap()
 }
 
-pub fn put_file_in_vault(vault: &Client, file: &PathBuf, hex: &String) -> Result<String, io::Error>{
-    let mut f = try!(File::open(file));
-    let mut s = String::new();
-    try!(f.read_to_string(&mut s));
-    let _ = vault.set_secret(&hex[..], &s[..].replace("\n", "\\n")).unwrap();
+pub fn put_file_in_vault(vault: &Client, string: &String, hex: &String) -> Result<String, io::Error>{
+    let _ = vault.set_secret(&hex[..], &string[..].replace("\n", "\\n")).unwrap();
     Ok("".to_string())
 }
 
