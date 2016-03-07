@@ -1,0 +1,69 @@
+image: iceyec/ci-rust
+
+before_script:
+  - export TRAVIS_JOB_ID=$CI_BUILD_ID
+
+cache:
+  key: $CI_BUILD_STAGE/$CI_BUILD_REF_NAME
+  paths:
+    - $HOME/.cargo
+
+variables:
+  TRAVIS_CARGO_NIGHTLY_FEATURE: ""
+
+stages:
+  - test
+  - publish
+
+test-stable-0.4.1:
+  script:
+    - VAULT_VERSION=0.4.1 bin/install-vault-release.sh
+    - $HOME/bin/vault server -dev &
+    - curl -sSf https://static.rust-lang.org/rustup.sh | sh -s -- -y --disable-sudo
+    - travis-cargo build
+    - VAULT_ADDR=http://127.0.0.1:8200 $HOME/bin/vault token-create -id="test12345"
+    - travis-cargo test
+
+test-stable-0.5.0:
+  script:
+    - VAULT_VERSION=0.5.0 bin/install-vault-release.sh
+    - $HOME/bin/vault server -dev &
+    - curl -sSf https://static.rust-lang.org/rustup.sh | sh -s -- -y --disable-sudo
+    - travis-cargo build
+    - VAULT_ADDR=http://127.0.0.1:8200 $HOME/bin/vault token-create -id="test12345"
+    - travis-cargo test
+    - travis-cargo coverage --no-sudo || true
+    - cat target/kcov*/index.json || true
+
+test-beta-0.5.0:
+  allow_failure: true
+  script:
+    - VAULT_VERSION=0.5.0 bin/install-vault-release.sh
+    - $HOME/bin/vault server -dev &
+    - curl -sSf https://static.rust-lang.org/rustup.sh | sh -s -- -y --disable-sudo --channel=beta
+    - travis-cargo build
+    - VAULT_ADDR=http://127.0.0.1:8200 $HOME/bin/vault token-create -id="test12345"
+    - travis-cargo test
+
+test-nightly-0.5.0:
+  allow_failure: true
+  script:
+    - VAULT_VERSION=0.5.0 bin/install-vault-release.sh
+    - $HOME/bin/vault server -dev &
+    - curl -sSf https://static.rust-lang.org/rustup.sh | sh -s -- -y --disable-sudo --channel=nightly
+    - travis-cargo build
+    - VAULT_ADDR=http://127.0.0.1:8200 $HOME/bin/vault token-create -id="test12345"
+    - travis-cargo test
+
+
+publish:
+  stage: publish
+  only:
+    - tags
+  script:
+    - curl -sSf https://static.rust-lang.org/rustup.sh | sh -s -- -y --disable-sudo
+    - cargo build --release --verbose
+    - cargo test --verbose
+    - cargo package --verbose
+    - cargo doc --verbose
+    - cargo publish --token "$CRATES_IO_TOKEN"
