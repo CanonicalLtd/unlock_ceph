@@ -1,6 +1,6 @@
 [package]
 name = "unlock_ceph"
-version = "1.0.0"
+version = "1.1.0"
 authors = ["Chris MacNaughton <chmacnaughton@gmail.com>"]
 
 [dependencies]
@@ -8,6 +8,7 @@ clap = "2.1"
 hashicorp_vault = "0.3"
 log = "0.3"
 rust-crypto = "^0.2"
+rustc-serialize = "0.3"
 simple_logger = "0.4"
 walkdir = "0.1"
 

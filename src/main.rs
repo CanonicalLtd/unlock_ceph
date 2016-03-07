@@ -3,6 +3,7 @@ extern crate crypto;
 extern crate hashicorp_vault;
 #[macro_use] extern crate log;
 #[cfg(test)] extern crate rand;
+extern crate rustc_serialize;
 extern crate simple_logger;
 extern crate walkdir;
 
@@ -17,6 +18,7 @@ use clap::{Arg, App};
 use crypto::digest::Digest;
 use crypto::sha1::Sha1;
 use hashicorp_vault::Client;
+use rustc_serialize::base64::{self, ToBase64, FromBase64};
 use walkdir::WalkDir;
 
 mod vault;
@@ -358,7 +360,7 @@ mod tests {
 }
 
 fn main() {
-    let matches = clap::App::new("unlock_ceph")
+    let matches = App::new("unlock_ceph")
         .version(crate_version!())
         .arg(Arg::with_name("source")
                             .short("s")
@@ -429,6 +431,7 @@ fn eat_files(vault_host: &str, token: &str, source: &PathBuf, destination: &Path
     let files_to_lock = get_files_at_path(source);
     trace!("About to move {:?}", files_to_lock);
 
+    trace!("About to link {:?}", files_to_link);
     for file in files_to_lock {
         let _ = make_file_link(&file, &PathBuf::from(destination), &vault_client);
     }
@@ -484,14 +487,20 @@ fn make_file_link(source: &PathBuf, dst: &PathBuf, vault: &Client) -> Result<Str
     let mut hasher = Sha1::new();
     hasher.input_str(&source.to_string_lossy()[..]);
     let hex = hasher.result_str();
-    let mut f = try!(File::open(source));
-    let mut input_string = String::new();
-    try!(f.read_to_string(&mut input_string));
+    trace!("Set {:?} to: {}", source, hex);
+    // let mut f = try!(File::open(source));
+    // let mut input_string = String::new();
+    // trace!("About to read file to String");
+    // try!(f.read_to_string(&mut input_string));
+    let input_string = file_to_str(source);
+    trace!("About to set {:?}", source);
     let _ = put_file_in_vault(vault, &input_string, &hex);
+    trace!("About to verify {:?}", source);
     let res = read_file_from_vault(vault, &hex).unwrap();
     if res != input_string {
         panic!("Did not read the same thing as we set!");
     }
+    trace!("Building destination");
     let _ = try!(DirBuilder::new()
                 .recursive(true)
                 .create(&dst));
@@ -509,10 +518,27 @@ fn restore_file_at_path(source: &PathBuf, dst: &PathBuf, vault: &Client) -> Resu
     let hex = hasher.result_str();
     let tmp_string = read_file_from_vault(vault, &hex).unwrap();
     let mut dst_path = PathBuf::from(dst);
+    let _ = try!(DirBuilder::new()
+                .recursive(true)
+                .create(&dst));
     dst_path.push(hex);
 
     let mut f = File::create(dst_path.clone()).unwrap();
-    let _ = f.write_all(tmp_string.as_bytes());
+    let _ = f.write_all(slice_from_b64(&tmp_string).as_slice());
 
     Ok("Str".to_string())
+}
+
+fn file_to_str(source: &PathBuf) -> String{
+    // let size = File::metadata(source).unwrap().len();
+    let mut f = File::open(source).unwrap();
+    let mut buffer = vec![];
+    let _ = f.read_to_end(&mut buffer);
+
+    let res = buffer.as_slice().to_base64(base64::STANDARD);
+    res
+}
+
+fn slice_from_b64(input: &String) -> Vec<u8> {
+    input.from_base64().unwrap()
 }
