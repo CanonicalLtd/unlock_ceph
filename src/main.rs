@@ -294,7 +294,7 @@ mod tests {
             let dst1 = super::create_file(&dir, "test_1.txt", Some("Hello, world!"));
             let sha = super::make_sha(&dst1);
             let vault_client = initialize_vault("http://127.0.0.1:8200", "test12345");
-            let _ = put_file_in_vault(&vault_client, &dst1, &sha).unwrap();
+            let _ = put_file_in_vault(&vault_client, &"Hello, world!".to_string(), &sha).unwrap();
 
 
             let _ = vault_client.delete_secret(&sha);
@@ -309,7 +309,7 @@ mod tests {
 
             let sha = super::make_sha(&dst1);
             let vault_client = initialize_vault("http://127.0.0.1:8200", "test12345");
-            let _ = put_file_in_vault(&vault_client, &dst1, &sha).unwrap();
+            let _ = put_file_in_vault(&vault_client, &"Hello, world!".to_string(), &sha).unwrap();
             let value = read_file_from_vault(&vault_client, &sha).unwrap();
 
             let _ = vault_client.delete_secret(&sha);
